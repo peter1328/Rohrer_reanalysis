@@ -1,0 +1,481 @@
+---
+title: "Rohreretal2019_Reanalysis"
+output: 
+  html_document: 
+    df_print: default
+    highlight: espresso
+    keep_md: yes
+    smart: no
+    theme: spacelab
+---
+author: "Peter A. Edelsbrunner"
+output:
+  html_document:
+    theme: cerulean
+encoding: UTF-8
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+pre {
+  overflow-x: auto;
+}
+pre code {
+  word-wrap: normal;
+  white-space: pre;
+}
+</style>
+
+---
+
+# {.tabset}
+
+## Relevant parts for this re-analysis from the manuscript
+
+### Test
+ 
+ We tested students on five days in March—a different date for
+ each school. Students were tested during their regular class meeting
+ in the presence of their teacher and at least one author. Students
+ who were absent on their assigned test day did not take the test. We
+ asked teachers not to inform students of the test in advance, and
+ teachers received no information about the test content in advance.
+ Each test booklet included a cover sheet and four test pages,
+ each printed on one side only. The test included four graph
+ problems (page 1), four inequality problems (page 2), four expression
+ problems (page 3), and four circle problems (page 4). We
+ chose to block the test problems because some researchers have
+ suggested that an interleaving test format would favor students
+ who interleaved their practice, and, if this is true, our choice of a
+ blocked format would have worked against an interleaving benefit.
+ We chose the sequence of these blocks (graph problems, then
+                                        inequality problems, then expression problems, and then circle
+                                        problems) because we believe it ordered the four kinds of problems
+ from least to most time-consuming. None of the test problems
+ had appeared previously in the study. Every student saw the same
+ test problems, but we created four versions of the test by reordering
+ the problems within each page. An author distributed every test
+ booklet to students and ensured that adjacent students received
+ different test versions. In addition, teachers separated students’
+ desks or required students to use dividers that ostensibly prevented
+ them from seeing other students’ tests. Students were allotted 25
+ min and allowed to use a calculator.
+ Every test was scored at the school on the day of the test by the
+ four authors and two research assistants. Scorers were blind to
+ condition, and each answer was marked as correct or not. Two
+ scorers independently scored each test. Discrepancies were rare
+ (83 in 12,592), and the four authors later met and resolved each
+ discrepancy. The internal consistency reliability of the test was
+ high (for the 16 items, Cronbach’s alpha = .89).
+
+### Worksheets
+
+ The worksheets included critical problems and filler problems.
+ The critical problems were like the kinds of problems seen on the
+ test, and these consisted of four kinds: Expression (A), Inequality
+ (B), Graph (C), and Circle (D). An example of each is shown in
+ Figure 1.
+
+### Results
+
+ The effect
+ size was large, Cohen’s d = 0.83, 95% CI = [0.68, 0.97], where
+ d = (M1 - M2)/SDpooled, and M and SD are based on the studentlevel
+ data (not class means). We observed a positive effect for each
+ of the 15 teachers, ds = 0.23–1.48.
+ We also found a positive interleaving effect for each of the four
+ kinds of critical problems (A, B, C, and D), but the effect sizes are
+ misleading. Ranked from largest to smallest, the Cohen’s d values
+ for the four kinds equaled 0.86 (A), 0.63 (B), 0.40 (C), and 0.34
+ (D), and this rank order corresponds to the order in which the
+ blocked group saw these kinds of problems during the practice
+ phase—not coincidentally, we believe. That is, the largest effect
+ was observed for A problems (expressions), but the blocked group
+ worked the A problems early in the practice phase, long before the
+ test, thereby disadvantaging the blocked group and thus inflating
+ the interleaving effect. By contrast, the D problems (circles) produced
+ the smallest interleaving effect, yet the blocked group
+ worked the D problems near the end of the practice phase, which
+ shortened their test delay, and the shorter test delay likely boosted
+ their test scores and thus dampened the interleaving effect. In brief,
+these unavoidable scheduling confounds likely contributed to the
+large differences in the effect sizes of the four kinds of critical
+problems. However, there was no such confound for the critical
+problems as a whole because, when averaged across all four kinds,
+the time interval between each practice problem and the test date
+was nearly equal for the two groups (the slight difference favored
+the blocked condition).
+
+## Data load & Preps
+
+```{r packagesfunctions}
+
+library(brms)
+library(plyr)
+library(ggplot2)
+library(lavaan)
+library(effsize)
+library(tidyverse)
+library(reshape)
+
+logit2prob <- function(logit){
+  odds <- exp(logit)
+  prob <- odds / (1 + odds)
+  return(prob)
+}
+
+
+```
+
+```{r load.data}
+setwd("C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/")
+rohrer <- read.csv("C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/OSF_test_scores_rohrer.txt", header = TRUE, sep = "\t")
+rohrer <- rohrer[, -22]
+
+```
+
+```{r build.scores}
+
+rohrer$mean <- rowMeans(rohrer[, c(6:21)])
+rohrer$mean_G <- rowMeans(rohrer[, c(6:9)])
+rohrer$mean_I <- rowMeans(rohrer[, c(10:13)])
+rohrer$mean_E <- rowMeans(rohrer[, c(14:17)])
+rohrer$mean_C <- rowMeans(rohrer[, c(18:21)])
+
+rohrer$Group_numeric <- as.numeric(rohrer$Group) -1
+
+```
+
+```{r long.dataset}
+
+rohrer_long <- melt(rohrer, id = c("School", "Teacher", "Class", "Group", "Student",
+                                                            "mean",
+                                                            "mean_G",
+                                                            "mean_I",
+                                                            "mean_E",
+                                                            "mean_C",
+                                   "Group_numeric"))
+
+rohrer_long$dim <- ifelse(rohrer_long$variable == "G1" | rohrer_long$variable == "G2" | rohrer_long$variable == "G3" | rohrer_long$variable == "G4", "G", "NA")
+rohrer_long$dim <- ifelse(rohrer_long$variable == "E1" | rohrer_long$variable == "E2" | rohrer_long$variable == "E3" | rohrer_long$variable == "E4", "E", rohrer_long$dim)
+rohrer_long$dim <- ifelse(rohrer_long$variable == "I1" | rohrer_long$variable == "I2" | rohrer_long$variable == "I3" | rohrer_long$variable == "I4", "I", rohrer_long$dim)
+rohrer_long$dim <- ifelse(rohrer_long$variable == "C1" | rohrer_long$variable == "C2" | rohrer_long$variable == "C3" | rohrer_long$variable == "C4", "C", rohrer_long$dim)
+
+```
+
+## Plots descriptives manifest effect sizes
+
+```{r plots}
+
+ggplot(rohrer, aes(x = Group, y = mean)) +
+  geom_violin() +
+  geom_boxplot()
+
+ggplot(rohrer, aes(x = Group, y = mean)) +
+  geom_violin() +
+  geom_boxplot() +
+  facet_wrap(~ Teacher)
+
+names(rohrer)
+
+melt(rohrer[23:26]) %>%
+  ggplot(aes(x = variable, y = value)) +
+  geom_violin()
+table(rohrer[23])
+table(rohrer[24])
+table(rohrer[25])
+table(rohrer[26])
+table(rohrer[22])
+hist(rohrer[, 22], breaks = 8, col = "blue")
+
+
+#Note: the individual scales are strongly bimodal and also the overall scale visibly shows that some students master one type of problems, some two, some three, and some four - the individual item types have a strong bimodal nature. Difficult to analyze and make informative - one analytic aim would be to ditinguish between mastered or non-mastered, which would probably be nice to challenge with a mixture model - but a four-dimensional mixture is quite complicated, and also how to compute something d-equivalent from that?... Well, since the four individual scales have this strong floor vs. ceiling-nature, perhaps the overall Cohen's d of about .80 across all items is really not a bad measure of the effect. First I thought it's not good because the four scales intercorrelate only very mildly, but that might again at least partially be due to the strange floor/ceiling-structure...
+
+```
+
+```{r effect.sizes}
+
+cohen.d(mean ~ Group, data = rohrer)
+cohen.d(mean_G ~ Group, data = rohrer)
+cohen.d(mean_I ~ Group, data = rohrer)
+cohen.d(mean_E ~ Group, data = rohrer)
+cohen.d(mean_C ~ Group, data = rohrer)
+
+```
+
+```{r descriptives}
+
+library(psych)
+describeBy(rohrer$mean, rohrer$Group)
+
+#Intercorrelations between overal score and scores on four dimensions
+cor(subset(rohrer[22:27]))
+cor(subset(rohrer[22:27], Group_numeric == 0)) #Block
+cor(subset(rohrer[22:27], Group_numeric == 1)) #Inter
+
+```
+
+## CFAs and SEMs
+
+```{r CFAsandSEMs}
+
+CFA <- '
+G =~ G1 + G2 + G3 + G4
+I =~ I1 + I2 + I3 + I4
+E =~ E1 + E2 + E3 + E4
+C =~ C1 + C2 + C3 + C4'
+
+CFA.fit <- cfa(CFA, data = rohrer, estimator = "WLSMV")
+summary(CFA.fit, std = TRUE, fit = TRUE)
+#Fit quite ok
+
+SEM <- '
+G =~ G1 + G2 + G3 + G4
+I =~ I1 + I2 + I3 + I4
+E =~ E1 + E2 + E3 + E4
+C =~ C1 + C2 + C3 + C4
+G + E + I + C ~ Group_numeric
+'
+
+SEM.fit <- cfa(SEM, data = rohrer, estimator = "WLSMV", std.lv = TRUE)
+summary(SEM.fit, std = TRUE, fit = TRUE)
+#Model fit is kind of ok, factor interrelations quite low (!) -> reason for inflated overall estimate (+ more overall vairance stemming from higher number of items?)?
+
+SEM_unidim <- '
+GIEC =~ G1 + G2 + G3 + G4 + I1 + I2 + I3 + I4 + E1 + E2 + E3 + E4 + C1 + C2 + C3 + C4
+GIEC ~ Group_numeric'
+
+SEM_unidim.fit <- cfa(SEM_unidim, data = rohrer, estimator = "WLSMV")
+summary(SEM_unidim.fit, std = TRUE, fit = TRUE)
+#Model fit is really bad
+
+```
+
+## Bayesian multilevel model
+
+```{r brms.models0, eval = FALSE, cache = TRUE}
+
+#Bayesian multilevel-model
+
+#t-Priors for Bernoulli for logits of item solution probabilities
+m1priors <- c(
+  prior(student_t(3, 0, 2.5), class = "Intercept"),
+  prior(student_t(3, 0, 2.5), class = "b")
+)
+
+#Simple model: 
+rohrer_brms <- brm(value ~ Group + (1|variable + Student + Teacher + Class),
+                   family = "Bernoulli",
+                   data = rohrer_long,
+                   chains = 4,
+                   cores = 4,
+                   iter = 4000,
+                   warmup = 1000,
+                   control = list(adapt_delta = 0.95),
+                   prior = m1priors,
+                   seed = 666)
+summary(rohrer_brms)
+plot(rohrer_brms)
+
+logit2prob(-0.81)
+logit2prob(0.97)
+#based on logit-interpretation:
+#Average solution prob .31 vs. .73?
+
+start_time <- Sys.time()
+# Time difference of 1.000327 mins
+##Interaction of intervention effect with four task dimensions
+rohrer_brms_int <- brm(value ~ Group*dim + (1|variable + Student + Teacher + Class),
+                       family = "Bernoulli",
+                       data = rohrer_long,
+                       chains = 4,
+                       cores = 4,
+                       iter = 4000,
+                       warmup = 1000,
+                       control = list(adapt_delta = 0.95),
+                       prior = m1priors,
+                       seed = 666)
+#Start: 6pm; finished: 7:15om
+end_time <- Sys.time()
+#Model estimation took:
+end_time - start_time
+
+save(rohrer_brms, file = "rohrer_brms_fit.rda", 
+     compress = "xz")
+save(rohrer_brms_int, file = "rohrer_brms_int.rda", 
+     compress = "xz")
+
+```
+
+## #Model with random slope
+
+```{r brms.models, eval = FALSE, cache = TRUE}
+
+#Bayesian multilevel-model
+
+#t-Priors for Bernoulli for logits of item solution probabilities
+m1priors <- c(
+  prior(student_t(3, 0, 2.5), class = "Intercept"),
+  prior(student_t(3, 0, 2.5), class = "b")
+)
+
+start_time <- Sys.time()
+# Time difference of 1.000327 mins
+##Interaction of intervention effect with four task dimensions
+rohrer_long$TeaCla <- interaction(rohrer_long$Teacher, rohrer_long$Class)
+str(rohrer_long$TeaCla)
+rohrer_brms_int_rs <- brm(value ~ Group*dim + (1|variable + Student + Teacher + Class) + (Group*dim|TeaCla),
+                       family = "Bernoulli",
+                       data = rohrer_long,
+                       chains = 4,
+                       cores = 4,
+                       iter = 4000,
+                       warmup = 1000,
+                       control = list(adapt_delta = 0.95),
+                       prior = m1priors,
+                       seed = 666)
+#Start: 6pm; finished: 7:15om
+end_time <- Sys.time()
+#Model estimation took:
+end_time - start_time
+
+save(rohrer_brms_int_rs, file = "rohrer_brms_int_rs.rda", 
+     compress = "xz")
+
+```
+
+## #Model with random slope and school (full maximum model)
+
+```{r brms.models2, eval = FALSE, cache = TRUE}
+
+start_time <- Sys.time()
+
+rohrer_brms_int_full <- brm(value ~ Group*dim + (1*Group*dim|Student + Teacher + Class + School),
+                       family = "Bernoulli",
+                       data = rohrer_long,
+                       chains = 4,
+                       cores = 4,
+                       iter = 4000,
+                       warmup = 1000,
+                       control = list(adapt_delta = 0.95),
+                       seed = 666)
+end_time <- Sys.time()
+end_time - start_time
+
+save(rohrer_brms_int_full, file = "rohrer_brms_int_rs.rda",
+     compress = "xz")
+
+```
+
+### Load fitted models
+
+```{r investigate.bayesianmultilevelmodels}
+load("rohrer_brms_fit.rda")
+load("rohrer_brms_int.rda")
+load("rohrer_brms_int_rs.rda")
+#load("rohrer_brms_int_full.rda")
+
+summary(rohrer_brms)
+plot(rohrer_brms)
+
+summary(rohrer_brms_int)
+plot(rohrer_brms_int)
+
+```
+
+### Descriptive evlauation of mixed model-estimates
+
+```{r}
+describeBy(rohrer$mean_C, rohrer$Group)
+logit2prob(-0.11)
+logit2prob(-0.11+0.53)
+describeBy(rohrer$mean_G, rohrer$Group)
+logit2prob(-0.11-1.56)
+logit2prob(-0.11+0.53-1.56+1.16)
+describeBy(rohrer$mean_E, rohrer$Group)
+logit2prob(-0.11-0.96)
+logit2prob(-0.11+0.53-0.96+0.10)
+describeBy(rohrer$mean_I, rohrer$Group)
+logit2prob(-0.11-0.39)
+logit2prob(-0.11+0.53-0.39+0.52)
+
+#Result: Model always understimates observed means via model-implied soluation probability; with about 7% on average. Else, everything seems fine (& to fit? -> model predictions form posteriors!)
+```
+
+## Mixture-approach
+
+```{r, eval = FALSE}
+
+rohrer$sum <- rowSums(rohrer[, c(6:21)])
+rohrer$sum_G <- rowSums(rohrer[, c(6:9)])
+rohrer$sum_I <- rowSums(rohrer[, c(10:13)])
+rohrer$sum_E <- rowSums(rohrer[, c(14:17)])
+rohrer$sum_C <- rowSums(rohrer[, c(18:21)])
+
+library(MplusAutomation)
+setwd("C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets")
+write.table(rohrer[, c(29:32, 27)], "r_mplus.dat", sep = "\t", na = "9999", row.names = FALSE, col.names = FALSE)
+print(paste(names(rohrer[, c(29:32, 27)]), collapse = " "))
+
+LPA <- '
+
+[[init]]
+iterators = p;
+p = 1:6;
+filename = "LPA_[[p]].inp";
+outputDirectory = "C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/LPA/LPA_[[p]]/";
+
+[[/init]]
+
+TITLE:
+LPA_[[p]]profiles
+
+DATA:
+FILE IS
+"C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/r_mplus.dat";
+
+VARIABLE:
+
+NAMES ARE
+sum_G sum_I sum_E sum_C Group;
+
+CATEGORICAL ARE
+sum_G sum_I sum_E sum_C;
+
+MISSING ARE ALL(9999);
+
+CLASSES = p([[p]]);
+
+ANALYSIS:
+type is mixture;
+starts = 4000 1000;
+process = 4;
+
+MODEL:
+
+%OVERALL%
+p ON group;
+
+OUTPUT:
+sampstat residual tech1 tech4 tech11 tech14;
+
+PLOT:
+type is plot1 plot2 plot3;
+SERIES IS sum_G (1) sum_I (2) sum_E (3) sum_C (4);
+
+'
+
+#Write template into textfile
+write(LPA, file = "LPA.txt")
+
+#Write Mplus input files based on template for 1-5 profiles
+createModels("LPA.txt")
+
+#Run Mplus input files
+setwd("C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/LPA/")
+runModels(recursive = TRUE)
+showSummaryTable(readModels(target = "C:/Users/petere/Downloads/Rohreretal2019JEPInterleaving_DataPreregSheets/LPA", what = "summaries", recursive = TRUE))
+
+```
+
